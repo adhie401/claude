@@ -220,9 +220,16 @@ fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
 }
 
 fn push_context_file(files: &mut Vec<ContextFile>, path: PathBuf) -> std::io::Result<()> {
-    match fs::read_to_string(&path) {
+    // Canonicalize the path to prevent path traversal attacks
+    let canonical_path = match path.canonicalize() {
+        Ok(p) => p,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+
+    match fs::read_to_string(&canonical_path) {
         Ok(content) if !content.trim().is_empty() => {
-            files.push(ContextFile { path, content });
+            files.push(ContextFile { path: canonical_path, content });
             Ok(())
         }
         Ok(_) => Ok(()),
