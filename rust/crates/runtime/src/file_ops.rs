@@ -298,10 +298,23 @@ pub fn edit_file(
 /// Expands a glob pattern and returns matching filenames.
 pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOutput> {
     let started = Instant::now();
+
+    // Reject patterns with path traversal sequences to prevent directory escape
+    if pattern.contains("..") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "pattern contains path traversal sequence",
+        ));
+    }
+
     let base_dir = path
         .map(normalize_path)
         .transpose()?
         .unwrap_or(std::env::current_dir()?);
+
+    // Canonicalize base directory for boundary checking
+    let canonical_base = base_dir.canonicalize().unwrap_or_else(|_| base_dir.clone());
+
     let search_pattern = if Path::new(pattern).is_absolute() {
         pattern.to_owned()
     } else {
@@ -313,7 +326,12 @@ pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOu
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     for entry in entries.flatten() {
         if entry.is_file() {
-            matches.push(entry);
+            // Validate that matched paths stay within the base directory
+            if let Ok(canonical) = entry.canonicalize() {
+                if canonical.starts_with(&canonical_base) {
+                    matches.push(canonical);
+                }
+            }
         }
     }
 
