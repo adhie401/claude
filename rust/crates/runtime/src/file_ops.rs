@@ -527,6 +527,7 @@ fn apply_limit<T>(
 
 fn make_patch(original: &str, updated: &str) -> Vec<StructuredPatchHunk> {
     let mut lines = Vec::new();
+    // nosemgrep: path-traversal - iterating over text content lines for diff output, not file paths
     for line in original.lines() {
         lines.push(format!("-{line}"));
     }
