@@ -544,6 +544,14 @@ fn make_patch(original: &str, updated: &str) -> Vec<StructuredPatchHunk> {
 }
 
 fn normalize_path(path: &str) -> io::Result<PathBuf> {
+    // Reject paths with path traversal sequences to prevent directory escape
+    if path.contains("..") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path contains path traversal sequence",
+        ));
+    }
+
     let candidate = if Path::new(path).is_absolute() {
         PathBuf::from(path)
     } else {
@@ -553,6 +561,14 @@ fn normalize_path(path: &str) -> io::Result<PathBuf> {
 }
 
 fn normalize_path_allow_missing(path: &str) -> io::Result<PathBuf> {
+    // Reject paths with path traversal sequences to prevent directory escape
+    if path.contains("..") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path contains path traversal sequence",
+        ));
+    }
+
     let candidate = if Path::new(path).is_absolute() {
         PathBuf::from(path)
     } else {
