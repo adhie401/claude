@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub const DEFAULT_REMOTE_BASE_URL: &str = "https://api.anthropic.com";
 pub const DEFAULT_SESSION_TOKEN_PATH: &str = "/run/ccr/session_token";
@@ -183,6 +183,16 @@ impl UpstreamProxyState {
 }
 
 pub fn read_token(path: &Path) -> io::Result<Option<String>> {
+    // Validate path doesn't contain directory traversal sequences
+    for component in path.components() {
+        if matches!(component, Component::ParentDir) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "path contains directory traversal",
+            ));
+        }
+    }
+
     match fs::read_to_string(path) {
         Ok(contents) => {
             let token = contents.trim();
@@ -365,6 +375,16 @@ mod tests {
             None
         );
         fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn token_reader_rejects_path_traversal() {
+        let traversal_path = PathBuf::from("/tmp/../etc/passwd");
+        let result = read_token(&traversal_path);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("traversal"));
     }
 
     #[test]
