@@ -43,6 +43,17 @@ fn validate_workspace_boundary(resolved: &Path, workspace_root: &Path) -> io::Re
     Ok(())
 }
 
+/// Reject paths containing path traversal sequences to prevent directory escape.
+fn validate_no_path_traversal(path: &str) -> io::Result<()> {
+    if path.contains("..") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path contains path traversal sequence",
+        ));
+    }
+    Ok(())
+}
+
 /// Text payload returned by file-reading operations.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TextFilePayload {
@@ -177,6 +188,7 @@ pub fn read_file(
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> io::Result<ReadFileOutput> {
+    validate_no_path_traversal(path)?;
     let absolute_path = normalize_path(path)?;
 
     // Check file size before reading
@@ -222,6 +234,7 @@ pub fn read_file(
 
 /// Replaces a file's contents and returns patch metadata.
 pub fn write_file(path: &str, content: &str) -> io::Result<WriteFileOutput> {
+    validate_no_path_traversal(path)?;
     if content.len() > MAX_WRITE_SIZE {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -261,6 +274,7 @@ pub fn edit_file(
     new_string: &str,
     replace_all: bool,
 ) -> io::Result<EditFileOutput> {
+    validate_no_path_traversal(path)?;
     let absolute_path = normalize_path(path)?;
     let original_file = fs::read_to_string(&absolute_path)?;
     if old_string == new_string {
@@ -305,6 +319,10 @@ pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOu
             io::ErrorKind::InvalidInput,
             "pattern contains path traversal sequence",
         ));
+    }
+
+    if let Some(path) = path {
+        validate_no_path_traversal(path)?;
     }
 
     let base_dir = path
@@ -359,6 +377,9 @@ pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOu
 
 /// Runs a regex search over workspace files with optional context lines.
 pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
+    if let Some(ref path) = input.path {
+        validate_no_path_traversal(path)?;
+    }
     let base_path = input
         .path
         .as_deref()
