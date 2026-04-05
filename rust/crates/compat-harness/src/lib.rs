@@ -13,9 +13,11 @@ pub struct UpstreamPaths {
 impl UpstreamPaths {
     #[must_use]
     pub fn from_repo_root(repo_root: impl Into<PathBuf>) -> Self {
-        Self {
-            repo_root: repo_root.into(),
-        }
+        let repo_root = repo_root.into();
+        let repo_root = repo_root
+            .canonicalize()
+            .unwrap_or_else(|_| repo_root.clone());
+        Self { repo_root }
     }
 
     #[must_use]
@@ -31,19 +33,37 @@ impl UpstreamPaths {
         Self { repo_root }
     }
 
+    /// Returns the path to commands.ts, validated to be within repo_root.
+    /// Returns None if the path would escape the repo root.
     #[must_use]
-    pub fn commands_path(&self) -> PathBuf {
-        self.repo_root.join("src/commands.ts")
+    pub fn commands_path(&self) -> Option<PathBuf> {
+        self.safe_path("src/commands.ts")
     }
 
+    /// Returns the path to tools.ts, validated to be within repo_root.
+    /// Returns None if the path would escape the repo root.
     #[must_use]
-    pub fn tools_path(&self) -> PathBuf {
-        self.repo_root.join("src/tools.ts")
+    pub fn tools_path(&self) -> Option<PathBuf> {
+        self.safe_path("src/tools.ts")
     }
 
+    /// Returns the path to cli.tsx, validated to be within repo_root.
+    /// Returns None if the path would escape the repo root.
     #[must_use]
-    pub fn cli_path(&self) -> PathBuf {
-        self.repo_root.join("src/entrypoints/cli.tsx")
+    pub fn cli_path(&self) -> Option<PathBuf> {
+        self.safe_path("src/entrypoints/cli.tsx")
+    }
+
+    /// Safely constructs a path within repo_root, validating it doesn't escape.
+    fn safe_path(&self, relative: &str) -> Option<PathBuf> {
+        let full_path = self.repo_root.join(relative);
+        let canonical = full_path.canonicalize().ok()?;
+        // Verify the canonical path is within repo_root
+        if canonical.starts_with(&self.repo_root) {
+            Some(canonical)
+        } else {
+            None
+        }
     }
 }
 
@@ -58,7 +78,16 @@ fn resolve_upstream_repo_root(primary_repo_root: &Path) -> PathBuf {
     let candidates = upstream_repo_candidates(primary_repo_root);
     candidates
         .into_iter()
-        .find(|candidate| candidate.join("src/commands.ts").is_file())
+        .find(|candidate| {
+            let commands_path = candidate.join("src/commands.ts");
+            // Validate the path doesn't escape the candidate directory
+            if let Ok(canonical) = commands_path.canonicalize() {
+                if let Ok(canonical_candidate) = candidate.canonicalize() {
+                    return canonical.starts_with(&canonical_candidate) && canonical.is_file();
+                }
+            }
+            false
+        })
         .unwrap_or_else(|| primary_repo_root.to_path_buf())
 }
 
@@ -87,9 +116,19 @@ fn upstream_repo_candidates(primary_repo_root: &Path) -> Vec<PathBuf> {
 }
 
 pub fn extract_manifest(paths: &UpstreamPaths) -> std::io::Result<ExtractedManifest> {
-    let commands_source = fs::read_to_string(paths.commands_path())?;
-    let tools_source = fs::read_to_string(paths.tools_path())?;
-    let cli_source = fs::read_to_string(paths.cli_path())?;
+    let commands_path = paths.commands_path().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid commands path")
+    })?;
+    let tools_path = paths.tools_path().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid tools path")
+    })?;
+    let cli_path = paths.cli_path().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid cli path")
+    })?;
+
+    let commands_source = fs::read_to_string(commands_path)?;
+    let tools_source = fs::read_to_string(tools_path)?;
+    let cli_source = fs::read_to_string(cli_path)?;
 
     Ok(ExtractedManifest {
         commands: extract_commands(&commands_source),
@@ -304,9 +343,9 @@ mod tests {
     }
 
     fn has_upstream_fixture(paths: &UpstreamPaths) -> bool {
-        paths.commands_path().is_file()
-            && paths.tools_path().is_file()
-            && paths.cli_path().is_file()
+        paths.commands_path().map_or(false, |p| p.is_file())
+            && paths.tools_path().map_or(false, |p| p.is_file())
+            && paths.cli_path().map_or(false, |p| p.is_file())
     }
 
     #[test]
@@ -324,11 +363,14 @@ mod tests {
     #[test]
     fn detects_known_upstream_command_symbols() {
         let paths = fixture_paths();
-        if !paths.commands_path().is_file() {
+        let Some(commands_path) = paths.commands_path() else {
+            return;
+        };
+        if !commands_path.is_file() {
             return;
         }
         let commands =
-            extract_commands(&fs::read_to_string(paths.commands_path()).expect("commands.ts"));
+            extract_commands(&fs::read_to_string(commands_path).expect("commands.ts"));
         let names: Vec<_> = commands
             .entries()
             .iter()
@@ -342,10 +384,13 @@ mod tests {
     #[test]
     fn detects_known_upstream_tool_symbols() {
         let paths = fixture_paths();
-        if !paths.tools_path().is_file() {
+        let Some(tools_path) = paths.tools_path() else {
+            return;
+        };
+        if !tools_path.is_file() {
             return;
         }
-        let tools = extract_tools(&fs::read_to_string(paths.tools_path()).expect("tools.ts"));
+        let tools = extract_tools(&fs::read_to_string(tools_path).expect("tools.ts"));
         let names: Vec<_> = tools
             .entries()
             .iter()
