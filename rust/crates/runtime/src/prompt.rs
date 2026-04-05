@@ -220,14 +220,33 @@ fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
 }
 
 fn push_context_file(files: &mut Vec<ContextFile>, path: PathBuf) -> std::io::Result<()> {
-    match fs::read_to_string(&path) {
+    // Validate that the filename is one of the expected instruction files
+    const VALID_FILENAMES: &[&str] = &["CLAUDE.md", "CLAUDE.local.md", "instructions.md"];
+    let is_valid_filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| VALID_FILENAMES.contains(&name))
+        .unwrap_or(false);
+
+    if !is_valid_filename {
+        return Ok(());
+    }
+
+    // Canonicalize the path to resolve symlinks and path traversal sequences
+    let canonical_path = match fs::canonicalize(&path) {
+        Ok(p) => p,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+
+    match fs::read_to_string(&canonical_path) {
         Ok(content) if !content.trim().is_empty() => {
             files.push(ContextFile { path, content });
             Ok(())
         }
         Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
     }
 }
 
