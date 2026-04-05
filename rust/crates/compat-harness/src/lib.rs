@@ -88,7 +88,11 @@ fn resolve_upstream_repo_root(primary_repo_root: &Path) -> PathBuf {
             }
             false
         })
-        .unwrap_or_else(|| primary_repo_root.to_path_buf())
+        .unwrap_or_else(|| {
+            primary_repo_root
+                .canonicalize()
+                .unwrap_or_else(|_| primary_repo_root.to_path_buf())
+        })
 }
 
 fn upstream_repo_candidates(primary_repo_root: &Path) -> Vec<PathBuf> {
