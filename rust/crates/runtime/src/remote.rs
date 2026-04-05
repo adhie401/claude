@@ -213,7 +213,7 @@ pub fn upstream_proxy_ws_url(base_url: &str) -> String {
     let ws_base = if let Some(stripped) = base.strip_prefix("https://") {
         format!("wss://{stripped}")
     } else if let Some(stripped) = base.strip_prefix("http://") {
-        format!("ws://{stripped}")
+        format!("wss://{stripped}")
     } else {
         format!("wss://{base}")
     };
@@ -413,7 +413,7 @@ mod tests {
     fn helper_outputs_match_expected_shapes() {
         assert_eq!(
             upstream_proxy_ws_url("http://localhost:3000/"),
-            "ws://localhost:3000/v1/code/upstreamproxy/ws"
+            "wss://localhost:3000/v1/code/upstreamproxy/ws"
         );
         assert!(no_proxy_list().contains("anthropic.com"));
         assert!(no_proxy_list().contains("github.com"));
